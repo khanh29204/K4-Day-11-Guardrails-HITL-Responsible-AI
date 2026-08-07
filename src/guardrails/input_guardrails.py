@@ -33,27 +33,83 @@ from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 # Regex is one signal, not the whole security boundary.
 # ============================================================
 
-def detect_injection(user_input: str) -> bool:
-    # 1. Chuẩn hóa Unicode và loại bỏ ký tự tàng hình / khoảng trắng ẩn
-    normalized = unicodedata.normalize("NFKC", user_input)
-    clean_text = re.sub(r'[\u200b-\u200d\ufeff]', '', normalized)
+def normalize_text(text: str) -> str:
+    """Canonicalize Unicode NFKC, remove zero-width/invisible chars, and lowercase."""
+    if not text:
+        return ""
+    normalized = unicodedata.normalize("NFKC", text)
+    # Remove zero-width and invisible characters (\u200b-\u200f, \u202e, \u2028-\u2029, \u2060, \ufeff, \u00ad)
+    clean = re.sub(r'[\u200b-\u200f\u202e\u2028\u2029\u2060\ufeff\u00ad]', '', normalized)
+    return clean.lower()
 
-    # 2. Danh sách các mẫu Prompt Injection cần phát hiện
+
+def strip_accents(text: str) -> str:
+    """Strip Vietnamese diacritics for topic matching."""
+    nfkd = unicodedata.normalize('NFD', text)
+    return "".join([c for c in nfkd if not unicodedata.combining(c)]).replace('đ', 'd').replace('Đ', 'd')
+
+
+def detect_injection(user_input: str) -> bool:
+    clean_text = normalize_text(user_input)
+
+    # 1. Regex patterns for standard and obfuscated text
     INJECTION_PATTERNS = [
-        r"ignore (all )?(previous|above) instructions",
-        r"you are now",
-        r"system prompt",
-        r"reveal your (instructions|prompt)",
-        r"pretend you are",
-        r"act as (a |an )?unrestricted",
-        r"show me the admin"
+        r"ignore\s+(all\s+)?(previous|above|prior|former)?\s*(instructions?|directives?|rules?|prompts?)",
+        r"disregard\s+(all\s+)?(previous|above|prior|former)?\s*(instructions?|directives?|rules?|prompts?)",
+        r"forget\s+(all\s+)?(your\s+|previous\s+|above\s+|prior\s+)?(instructions?|directives?|rules?|prompts?)",
+        r"override\s+(all\s+)?(your\s+|system\s+)?(instructions?|rules?|prompts?)",
+        r"you\s+are\s+now\b",
+        r"\bDAN\b",
+        r"pretend\s+(you\s+are|to\s+be)",
+        r"act\s+as\s+(a\s+|an\s+)?(unrestricted|evil|jailbroken)",
+        r"role\s*play\s+as",
+        r"system\s+prompt",
+        r"reveal\s+(your\s+|the\s+|internal\s+)?(instructions?|prompt|system\s+prompt|password|internal\s+password|api\s*key|secret)",
+        r"show\s+(me\s+)?(the\s+|your\s+|internal\s+)?(admin|system\s+prompt|password|internal\s+password|api\s*key|secret)",
+        r"translate\s+(your\s+)?(instructions?|system\s+prompt|rules?)",
+        r"output\s+(your\s+)?(config|instructions?|prompt)\s+(as|in)\s+(json|yaml|xml)",
+        r"fill\s+in\s*(the\s*)?(blank|blanks|___)",
+        r"password\s*[:=]",
+        r"api\s*key",
+        r"connection\s+string",
+        r"developer\s+mode",
+        # Vietnamese patterns
+        r"bỏ\s+qua\s+(mọi\s+|tất\s+cả\s+)?(các\s+)?(hướng\s+dẫn|chỉ\s+thị|lệnh|câu\s+lệnh|quy\s+tắc)",
+        r"quên\s+(mọi\s+|tất\s+cả\s+)?(các\s+)?(hướng\s+dẫn|chỉ\s+thị|lệnh|câu\s+lệnh|quy\s+tắc)",
+        r"tiết\s+lộ\s+(mật\s+khẩu|password|api|system\s*prompt|chỉ\s+thị|khóa)",
+        r"(cho\s+tôi\s+xem|hiển\s+thị|cho\s+biết)\s+(mật\s+khẩu|password|system\s*prompt|api\s*key|khóa)",
+        r"bạn\s+(bây\s+giờ|hiện\s+tại|từ\s+giờ)\s+là",
+        r"giả\s+(làm|vờ\s+là)",
+        r"đóng\s+vai",
     ]
 
-    # 3. Kiểm tra xem văn bản có khớp với mẫu nào không
     for pattern in INJECTION_PATTERNS:
         if re.search(pattern, clean_text, re.IGNORECASE):
             return True
-            
+
+    # 2. Layered check on compressed text (stripping punctuation/whitespace to catch spacing tricks)
+    compressed = re.sub(r'[^a-z0-9]', '', clean_text)
+    COMPRESSED_PATTERNS = [
+        r"ignore(all)?(previous|above|prior)?instructions",
+        r"disregard(all)?(previous|above|prior)?instructions",
+        r"forget(all)?(previous|above|prior)?instructions",
+        r"youarenow",
+        r"systemprompt",
+        r"revealyour(instructions|prompt|password|apikey)",
+        r"revealthe(internalpassword|password|apikey)",
+        r"revealinternalpassword",
+        r"showmetheadmin",
+        r"pretendyouare",
+        r"actas(a|an)?unrestricted",
+        r"boquamoi(huongdan|chithi|lenh)",
+        r"boquatatcahuongdan",
+        r"tietlomatkhau",
+    ]
+
+    for pattern in COMPRESSED_PATTERNS:
+        if re.search(pattern, compressed, re.IGNORECASE):
+            return True
+
     return False
 
 
@@ -76,18 +132,23 @@ def topic_filter(user_input: str) -> bool:
     Returns:
         True if input should be BLOCKED (off-topic or blocked topic)
     """
-    input_lower = user_input.lower()
+    clean_text = normalize_text(user_input)
 
-    # TODO: Implement logic:
     # 1. If input contains any blocked topic -> return True
-    # 2. If input doesn't contain any allowed topic -> return True
-    # 3. Otherwise -> return False (allow)
+    if any(blocked in clean_text for blocked in BLOCKED_TOPICS):
+        return True
 
-    # pass  # Replace with your implementation
-    if any(blocked in input_lower for blocked in BLOCKED_TOPICS):
+    # 2. Check allowed topics (handling accents and common context keywords)
+    unaccented = strip_accents(clean_text)
+    has_allowed = any(allowed in clean_text or allowed in unaccented for allowed in ALLOWED_TOPICS)
+
+    # Extra banking/document terms to avoid blocking legitimate banking emails/RAG requests
+    extra_allowed = ["bank", "email", "document", "customer", "khach hang", "tom tat", "summarise", "summary"]
+    has_extra = any(word in clean_text or word in unaccented for word in extra_allowed)
+
+    if not (has_allowed or has_extra):
         return True
-    elif not any(allowed in input_lower for allowed in ALLOWED_TOPICS):
-        return True
+
     return False
 
 
@@ -141,26 +202,14 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 3. If both are False: return None (let message through)
-
-        # pass  # Replace with your implementation
-        
-        # check prompt injection
         if detect_injection(text):
             self.blocked_count += 1
             return self._block_response("Blocked message: Injection detected.")
-        
-        # check topic
-        if topic_filter(text): 
+
+        if topic_filter(text):
             self.blocked_count += 1
             return self._block_response("Blocked message: Topic filter detected.")
 
-        # tin nhắn an toàn cho phép chuyển tới agent
         return None
 
 # ============================================================

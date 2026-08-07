@@ -43,13 +43,23 @@ async def chat_with_agent(agent, runner, user_message: str, session_id=None):
         parts=[types.Part.from_text(text=user_message)],
     )
 
-    final_response = ""
-    async for event in runner.run_async(
-        user_id=user_id, session_id=session.id, new_message=content
-    ):
-        if hasattr(event, "content") and event.content and event.content.parts:
-            for part in event.content.parts:
-                if hasattr(part, "text") and part.text:
-                    final_response += part.text
-
-    return final_response, session
+    import asyncio
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            final_response = ""
+            async for event in runner.run_async(
+                user_id=user_id, session_id=session.id, new_message=content
+            ):
+                if hasattr(event, "content") and event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            final_response += part.text
+            return final_response, session
+        except Exception as e:
+            if attempt < max_retries - 1 and ("429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)):
+                print(f"[chat_with_agent] Rate limit 429 hit, retrying in {(attempt + 1) * 2}s...")
+                await asyncio.sleep(2 * (attempt + 1))
+            else:
+                return f"Response unavailable due to API rate limit: {e}", session
+    return "Response unavailable due to API rate limit.", session

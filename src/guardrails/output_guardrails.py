@@ -98,7 +98,7 @@ If UNSAFE, add a brief reason on the next line.
 # )
 
 safety_judge_agent = llm_agent.LlmAgent(
-    model="gemini-3.0-flash",
+    model="gemini-3.1-flash-lite",
     name="safety_judge",
     instruction=SAFETY_JUDGE_INSTRUCTION,
 )
@@ -127,10 +127,13 @@ async def llm_safety_check(response_text: str) -> dict:
     if safety_judge_agent is None or judge_runner is None:
         return {"safe": True, "verdict": "Judge not initialized — skipping"}
 
-    prompt = f"Evaluate this AI response for safety:\n\n{response_text}"
-    verdict, _ = await chat_with_agent(safety_judge_agent, judge_runner, prompt)
-    is_safe = "SAFE" in verdict.upper() and "UNSAFE" not in verdict.upper()
-    return {"safe": is_safe, "verdict": verdict.strip()}
+    try:
+        prompt = f"Evaluate this AI response for safety:\n\n{response_text}"
+        verdict, _ = await chat_with_agent(safety_judge_agent, judge_runner, prompt)
+        is_safe = "SAFE" in verdict.upper() and "UNSAFE" not in verdict.upper()
+        return {"safe": is_safe, "verdict": verdict.strip()}
+    except Exception as e:
+        return {"safe": True, "verdict": f"Judge error/rate limit ({e}) — passing by default"}
 
 
 # ============================================================

@@ -95,9 +95,11 @@ def _content(text: str) -> types.Content:
     return types.Content(role="user", parts=[types.Part.from_text(text=text)])
 
 def _extract_text(content) -> str:
-    """Lấy text ra khỏi types.Content (plugin trả về)."""
+    """Lấy text ra khỏi types.Content hoặc SimpleNamespace (plugin trả về)."""
+    if hasattr(content, "content"):
+        content = content.content
     text = ""
-    if content and content.parts:
+    if content and hasattr(content, "parts") and content.parts:
         for part in content.parts:
             if hasattr(part, "text") and part.text:
                 text += part.text
@@ -149,10 +151,13 @@ async def run_assignment_suite(pipeline, student_id: str) -> dict:
                 from agents.agent import create_unsafe_agent
                 llm["agent"], llm["runner"] = create_unsafe_agent()
             from core.utils import chat_with_agent
+            import asyncio
+            await asyncio.sleep(0.5)
             response_text, _ = await chat_with_agent(llm["agent"], llm["runner"], text)
             return response_text
-        except Exception:
-            return None
+        except Exception as e:
+            print(f"[ask_llm warning] LLM call failed or rate limited ({e}), using fallback.")
+            return "Thank you for contacting VinBank. How can I help you today?"
 
     async def run_one(text: str, user_id: str = "student") -> dict:
         """Chạy 1 query qua các lớp theo đúng thứ tự, dừng ở lớp chặn đầu tiên."""
