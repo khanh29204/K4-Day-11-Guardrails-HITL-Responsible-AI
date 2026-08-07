@@ -5,6 +5,7 @@ Lab 11 — Part 2A: Input Guardrails
   TODO 3: Input Guardrail Plugin (ADK)
 """
 import re
+import unicodedata
 
 from google.genai import types
 from google.adk.plugins import base_plugin
@@ -33,23 +34,26 @@ from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 # ============================================================
 
 def detect_injection(user_input: str) -> bool:
-    """Detect prompt injection patterns in user input.
+    # 1. Chuẩn hóa Unicode và loại bỏ ký tự tàng hình / khoảng trắng ẩn
+    normalized = unicodedata.normalize("NFKC", user_input)
+    clean_text = re.sub(r'[\u200b-\u200d\ufeff]', '', normalized)
 
-    Args:
-        user_input: The user's message
-
-    Returns:
-        True if injection detected, False otherwise
-    """
+    # 2. Danh sách các mẫu Prompt Injection cần phát hiện
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"ignore (all )?(previous|above) instructions",
+        r"you are now",
+        r"system prompt",
+        r"reveal your (instructions|prompt)",
+        r"pretend you are",
+        r"act as (a |an )?unrestricted",
+        r"show me the admin"
     ]
 
+    # 3. Kiểm tra xem văn bản có khớp với mẫu nào không
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, clean_text, re.IGNORECASE):
             return True
+            
     return False
 
 
@@ -79,7 +83,12 @@ def topic_filter(user_input: str) -> bool:
     # 2. If input doesn't contain any allowed topic -> return True
     # 3. Otherwise -> return False (allow)
 
-    pass  # Replace with your implementation
+    # pass  # Replace with your implementation
+    if any(blocked in input_lower for blocked in BLOCKED_TOPICS):
+        return True
+    elif not any(allowed in input_lower for allowed in ALLOWED_TOPICS):
+        return True
+    return False
 
 
 # ============================================================
@@ -139,8 +148,20 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         #    - If True: increment blocked_count, return self._block_response("...")
         # 3. If both are False: return None (let message through)
 
-        pass  # Replace with your implementation
+        # pass  # Replace with your implementation
+        
+        # check prompt injection
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response("Blocked message: Injection detected.")
+        
+        # check topic
+        if topic_filter(text): 
+            self.blocked_count += 1
+            return self._block_response("Blocked message: Topic filter detected.")
 
+        # tin nhắn an toàn cho phép chuyển tới agent
+        return None
 
 # ============================================================
 # Quick tests

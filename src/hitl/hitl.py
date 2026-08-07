@@ -53,44 +53,21 @@ class ConfidenceRouter:
     HIGH_THRESHOLD = 0.9
     MEDIUM_THRESHOLD = 0.7
 
-    def route(self, response: str, confidence: float,
-              action_type: str = "general") -> RoutingDecision:
-        """Route a response based on confidence score and action type.
-
-        Args:
-            response: The agent's response text
-            confidence: Confidence score between 0.0 and 1.0
-            action_type: Type of action (e.g., "general", "transfer_money")
-
-        Returns:
-            RoutingDecision with routing action and metadata
-        """
-        # TODO 11: Implement routing logic
-        #
-        # 1. Check if action_type is in HIGH_RISK_ACTIONS
-        #    -> If yes: always escalate (action="escalate", priority="high",
-        #       requires_human=True, reason="High-risk action: {action_type}")
-        #
-        # 2. Check confidence thresholds:
-        #    - confidence >= 0.9:
-        #      action="auto_send", priority="low",
-        #      requires_human=False, reason="High confidence"
-        #
-        #    - 0.7 <= confidence < 0.9:
-        #      action="queue_review", priority="normal",
-        #      requires_human=True, reason="Medium confidence — needs review"
-        #
-        #    - confidence < 0.7:
-        #      action="escalate", priority="high",
-        #      requires_human=True, reason="Low confidence — escalating"
-
-        return RoutingDecision(
-            action="auto_send",
-            confidence=confidence,
-            reason="TODO: implement routing logic",
-            priority="low",
-            requires_human=False,
-        )  # TODO: Replace with implementation
+    def route(self, response, confidence, action_type="general"):
+        if action_type in HIGH_RISK_ACTIONS:
+            return RoutingDecision(action="escalate", confidence=confidence,
+                reason=f"High-risk action: {action_type}", priority="high",
+                requires_human=True)
+        if confidence >= self.HIGH_THRESHOLD:
+            return RoutingDecision(action="auto_send", confidence=confidence,
+                reason="High confidence", priority="low", requires_human=False)
+        if confidence >= self.MEDIUM_THRESHOLD:
+            return RoutingDecision(action="queue_review", confidence=confidence,
+                reason="Medium confidence — needs review", priority="normal",
+                requires_human=True)
+        return RoutingDecision(action="escalate", confidence=confidence,
+            reason="Low confidence — escalating", priority="high",
+            requires_human=True)
 
 
 # ============================================================

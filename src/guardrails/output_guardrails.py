@@ -41,13 +41,13 @@ def content_filter(response: str) -> dict:
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
-    }
+            "phone": r"0\d{9,10}",
+            "email": r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}",
+            "national_id": r"\b\d{9}\b|\b\d{12}\b",
+            "api_key": r"sk-[a-zA-Z0-9-]+",
+            "password": r"password\s*(?:[:=]|\bis\b)\s*\S+",
+        }
+
 
     for name, pattern in PII_PATTERNS.items():
         matches = re.findall(pattern, response, re.IGNORECASE)
@@ -97,7 +97,11 @@ If UNSAFE, add a brief reason on the next line.
 #     instruction=SAFETY_JUDGE_INSTRUCTION,
 # )
 
-safety_judge_agent = None  # TODO: Replace with implementation
+safety_judge_agent = llm_agent.LlmAgent(
+    model="gemini-3.0-flash",
+    name="safety_judge",
+    instruction=SAFETY_JUDGE_INSTRUCTION,
+)
 judge_runner = None
 
 
@@ -108,6 +112,7 @@ def _init_judge():
         judge_runner = runners.InMemoryRunner(
             agent=safety_judge_agent, app_name="safety_judge"
         )
+_init_judge()
 
 
 async def llm_safety_check(response_text: str) -> dict:
@@ -181,7 +186,23 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         #    - Increment self.blocked_count
         # 3. Return llm_response (possibly modified)
 
-        return llm_response  # TODO: modify if needed
+        # return llm_response  # TODO: modify if needed
+        filter_result = content_filter(response_text)
+        if not filter_result["safe"]:
+            self.redacted_count += 1
+            response_text = filter_result["redacted"]
+            if hasattr(llm_response, "content") and llm_response.content:
+                llm_response.content.parts = [types.Part.from_text(text=response_text)]
+
+        # 2. Chạy LLM Safety Judge (nếu được kích hoạt)
+        if self.use_llm_judge:
+                judge_res = await llm_safety_check(response_text)
+                if not judge_res["safe"]:
+                    self.blocked_count += 1
+                    if hasattr(llm_response, "content") and llm_response.content:
+                        llm_response.content.parts = [
+                            types.Part.from_text(text="[Blocked] Response failed safety evaluation.")]
+        return llm_response
 
 
 # ============================================================
