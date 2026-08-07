@@ -1,0 +1,37 @@
+{
+  "generated_at": "2026-08-07T09:18:27.583007+00:00",
+  "submission_dir": "/home/khanh/Data/vin_uni/codelabs/K4-Day-11-Guardrails-HITL-Responsible-AI",
+  "technical_failure": true,
+  "packaging": {
+    "ok": false,
+    "details": {
+      "report": [
+        "2A202601254_report.md"
+      ],
+      "audit": false,
+      "metrics": false,
+      "results": false,
+      "attack_results": true
+    }
+  },
+  "results_schema": {
+    "ok": false,
+    "error": "missing outputs/results.json",
+    "points": 0
+  },
+  "public_tests": {
+    "returncode": 0,
+    "stdout": ".........ssss                                                            [100%]\n9 passed, 4 skipped in 1.95s\n",
+    "stderr": "",
+    "technical_failure": false
+  },
+  "human_review_required": [
+    "report_layer_analysis",
+    "report_false_positives",
+    "report_gap_analysis",
+    "report_production_readiness",
+    "report_ethics",
+    "attack_success_bonus"
+  ],
+  "notes": "Checks packaging + schema + public tests. Defense 80% / Attack 20%. Bonus +2 per successful leak on Guards Agent only (max +10). Reports human-reviewed."
+}

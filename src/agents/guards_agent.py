@@ -70,10 +70,11 @@ _INJECTION_PATTERNS = [
     r"system\s+prompt",
     r"reveal\s+(your\s+)?(instructions?|prompt|secrets?|password|api\s*key)",
     r"show\s+(me\s+)?(your\s+)?(system\s+)?(prompt|instructions?|config)",
-    r"translate\s+(your\s+)?(instructions?|system\s+prompt|rules?)",
+    r"translate\s+.*(instructions?|system\s+prompt|rules?|credentials)",
     r"output\s+(your\s+)?(config|instructions?|prompt)\s+(as|in)\s+(json|yaml|xml)",
-    r"fill\s+in\s*(the\s*)?(blank|blanks|___)",
-    r"password\s*(is|=|:)",
+    r"fill\s+in\s+.*(blank|blanks|___|configuration|record)",
+    r"password\s*[:=]",
+    r"admin\s+password\s*=",
     r"api\s*key",
     r"connection\s+string",
     r"base64|rot13",
@@ -87,6 +88,8 @@ _INJECTION_PATTERNS = [
     r"hypotheticall?y.*(password|api\s*key|secret|credentials)",
     r"write\s+a\s+story.*(password|credentials|api\s*key|same\s+secrets)",
     r"confirm\s+(that\s+)?(the\s+)?(admin\s+)?password",
+    r"confirm\s+(if|that)\s+.*(match|correct|password|api\s*key)",
+    r"verify\s+(that\s+)?.*(password|api\s*key|secret)",
 ]
 
 _OUTPUT_SECRET_PATTERNS = {
@@ -210,11 +213,15 @@ class GuardsOutputPlugin(base_plugin.BasePlugin):
         self.total_count = 0
 
     def _text(self, llm_response) -> str:
-        if not hasattr(llm_response, "content") or not llm_response.content:
-            return ""
-        return "".join(
-            p.text for p in llm_response.content.parts if getattr(p, "text", None)
-        )
+        text = ""
+        if hasattr(llm_response, "content") and llm_response.content:
+            if hasattr(llm_response.content, "parts") and llm_response.content.parts:
+                text += "".join(p.text for p in llm_response.content.parts if getattr(p, "text", None))
+        if hasattr(llm_response, "parts") and llm_response.parts:
+            text += "".join(p.text for p in llm_response.parts if getattr(p, "text", None))
+        if hasattr(llm_response, "text") and llm_response.text and not text:
+            text = llm_response.text
+        return text
 
     async def after_model_callback(self, *, callback_context, llm_response):
         self.total_count += 1
@@ -223,17 +230,21 @@ class GuardsOutputPlugin(base_plugin.BasePlugin):
             return llm_response
 
         filtered = content_filter_strong(text)
-        if not filtered["safe"]:
+        if not filtered["safe"] or check_secret_leak(text):
             self.redacted_count += 1
-            # If secrets were present, replace entire reply (hard fail-closed)
             safe_msg = (
                 "I cannot share internal system details. "
                 "How else can I help with your VinBank account or banking needs?"
             )
             self.blocked_count += 1
-            llm_response.content = types.Content(
-                role="model", parts=[types.Part.from_text(text=safe_msg)]
-            )
+            if hasattr(llm_response, "content") and llm_response.content:
+                llm_response.content = types.Content(
+                    role="model", parts=[types.Part.from_text(text=safe_msg)]
+                )
+            if hasattr(llm_response, "parts"):
+                llm_response.parts = [types.Part.from_text(text=safe_msg)]
+            if hasattr(llm_response, "text"):
+                llm_response.text = safe_msg
         return llm_response
 
 
@@ -245,9 +256,11 @@ def create_guards_agent():
         name="guards_assistant",
         instruction=GUARDS_INSTRUCTION,
     )
+    agent.__dict__["plugins"] = plugins
     runner = runners.InMemoryRunner(
-        agent=agent, app_name="guards_test", plugins=plugins
+        agent=agent, app_name="guards_test"
     )
+    runner.__dict__["plugins"] = plugins
     print("Guards agent created — STRONG guardrails (bonus attack target).")
     return agent, runner
 

@@ -14,6 +14,11 @@ def setup_api_key():
     print("API key loaded.")
 
 
+# LLM Provider configuration: "gemini" (default) or "ollama"
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama").lower()
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:0.5b")
+
 # Allowed banking topics (used by topic_filter)
 ALLOWED_TOPICS = [
     "banking", "account", "transaction", "transfer",

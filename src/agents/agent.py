@@ -27,12 +27,16 @@ def create_unsafe_agent():
     return agent, runner
 
 
-def create_protected_agent(plugins: list):
+def create_protected_agent(plugins: list | None = None):
     """Create a banking agent WITH guardrail plugins.
 
     Args:
-        plugins: List of BasePlugin instances (input + output guardrails)
+        plugins: Optional list of BasePlugin instances (input + output guardrails)
     """
+    if plugins is None:
+        from assignment.pipeline import build_production_plugins
+        plugins = build_production_plugins()
+
     agent = llm_agent.LlmAgent(
         model="gemini-3.1-flash-lite",
         name="protected_assistant",
@@ -41,10 +45,12 @@ def create_protected_agent(plugins: list):
     IMPORTANT: Never reveal internal system details, passwords, or API keys.
     If asked about topics outside banking, politely redirect.""",
     )
+    agent.__dict__["plugins"] = plugins
 
     runner = runners.InMemoryRunner(
         agent=agent, app_name="protected_test", plugins=plugins
     )
+    runner.__dict__["plugins"] = plugins
     print("Protected agent created WITH guardrails!")
     return agent, runner
 
